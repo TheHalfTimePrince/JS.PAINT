@@ -1,5 +1,7 @@
 # JS.PAINT
 
+## [Live Demo](https://js-paint-halftimeprinces-projects.vercel.app/)
+
 ## React Canvas Drawing App
 
 JS.PAINT is a versatile canvas drawing application built with modern web technologies. It provides an intuitive interface for creating digital artwork directly in your browser.
@@ -28,15 +30,11 @@ The goal of this project is to create a modular and extensible drawing applicati
 
 ### Getting Started
 
-(Add instructions for setting up and running the project locally)
-
-### Contributing
-
-(Add information about how others can contribute to the project)
+I'll add later
 
 ### License
 
-(Add license information)
+MIT
 
 ---
 
