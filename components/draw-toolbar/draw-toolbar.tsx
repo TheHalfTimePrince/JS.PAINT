@@ -280,14 +280,14 @@ export const DrawToolbar = ({ canvas }: { canvas: any }) => {
           >
             <Pencil size={24} />
           </button>
-          <button
+          {/* <button
             onClick={enablePenTool}
             className={`p-2 bg-white border-2  rounded-full shadow-md pointer-events-auto hover:bg-gray-100 ${
               selectedTool === "pen" ? "text-primary" : ""
             }`}
           >
             <PenTool size={24} />
-          </button>
+          </button> */}
           <button
             onClick={enableEraser}
             className={`p-2 bg-white  border-2  rounded-full shadow-md pointer-events-auto hover:bg-gray-100 ${
