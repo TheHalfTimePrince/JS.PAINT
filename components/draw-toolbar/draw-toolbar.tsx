@@ -23,95 +23,78 @@ import ColorSelect from "./color-select";
 import SizeSelect from "./size-select";
 import ShapeSelect from "./shape-select";
 import IconSelect from "./icon-select";
+import useCanvasHistory from "@/lib/hooks/canvas/useCanvasHistory";
 
-export const DrawToolbar = ({ canvas }: { canvas: any }) => {
+export const DrawToolbar = ({ canvas }: { canvas: fabric.fabric.Canvas }) => {
   const [selectedTool, setSelectedTool] = useState("select");
   const [color, setColor] = useState("#FF8000");
   const [size, setSize] = useState(5);
   const [backgroundColor, setBackgroundColor] = useState("white");
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [canvasStates, setCanvasStates] = useState<string[]>([]);
-  const currentStateIndexRef = useRef<number>(-1);
-  const isUndoingRedoingRef = useRef<boolean>(false);
-  const [currentStateIndex, setCurrentStateIndex] = useState(0);
 
+  const { undo, redo, canUndo, canRedo } = useCanvasHistory(canvas);
   // Enable path drawing tool
+  // State for line drawing
+  const [isDrawingLine, setIsDrawingLine] = useState(false);
+  const [tempLine, setTempLine] = useState<fabric.fabric.Line | null>(null);
+
+  // Enable line drawing mode
   const enablePenTool = () => {
     setSelectedTool("pen");
+    setIsDrawingLine(true);
+    canvas.isDrawingMode = false;
+    canvas.selection = false;
+    canvas.defaultCursor = createCustomCursor(
+      0,
+      "#000000",
+      color,
+      size / 2
+    );
   };
-  useEffect(() => {
-    setCurrentStateIndex(currentStateIndexRef.current);
-  }, [canvasStates, currentStateIndexRef.current]);
 
-  const updateCanvasState = useCallback(() => {
-    if (isUndoingRedoingRef.current) return; // Skip updating state if undoing or redoing
-
-    const jsonData = JSON.stringify(canvas.toJSON());
-    setCanvasStates((prevStates) => {
-      const newStates = [
-        ...prevStates.slice(0, currentStateIndexRef.current + 1),
-        jsonData,
-      ];
-      currentStateIndexRef.current = newStates.length - 1;
-      return newStates;
+// Update event listeners in useEffect
+useEffect(() => {
+  const handleMouseDown = (event: fabric.fabric.IEvent) => {
+    if (selectedTool !== "pen" || !isDrawingLine) return;
+    if (!event.pointer) return;
+    const { x, y } = event.pointer;
+    const newLine = new fabric.fabric.Line([x, y, x, y], {
+      stroke: color,
+      strokeWidth: size,
+      selectable: false,
     });
-  }, [canvas]);
+    setTempLine(newLine);
+    canvas.add(newLine);
+  };
 
-  useEffect(() => {
-    if (canvas) {
-      // Save initial state
-      const initialState = JSON.stringify(canvas.toJSON());
-      setCanvasStates([initialState]);
-      currentStateIndexRef.current = 0;
+  const handleMouseMove = (event: fabric.fabric.IEvent) => {
+    if (!isDrawingLine || !tempLine) return;
+    if (!event.pointer) return;
+    const { x, y } = event.pointer;
+    tempLine.set({ x2: x, y2: y });
+    canvas.renderAll();
+  };
 
-      const handleStateUpdate = () => {
-        if (!isUndoingRedoingRef.current) {
-          updateCanvasState();
-        }
-      };
+  const handleMouseUp = () => {
+    if (!isDrawingLine || !tempLine) return;
+    setTempLine(null); // Clear temp line reference
+    setIsDrawingLine(true); // Reset to allow another line
+    canvas.renderAll();
+  };
+  
 
-      canvas.on("object:modified", handleStateUpdate);
-      canvas.on("object:added", handleStateUpdate);
-      canvas.on("object:removed", handleStateUpdate);
+  canvas.on("mouse:down", handleMouseDown);
+  canvas.on("mouse:move", handleMouseMove);
+  canvas.on("mouse:up", handleMouseUp);
 
-      return () => {
-        canvas.off("object:modified", handleStateUpdate);
-        canvas.off("object:added", handleStateUpdate);
-        canvas.off("object:removed", handleStateUpdate);
-      };
-    }
-  }, [canvas, updateCanvasState]);
-
-  const canvasUndo = useCallback(() => {
-    if (currentStateIndexRef.current > 0) {
-      isUndoingRedoingRef.current = true;
-      currentStateIndexRef.current -= 1;
-      setCurrentStateIndex(currentStateIndexRef.current); // Update state
-      canvas.loadFromJSON(
-        JSON.parse(canvasStates[currentStateIndexRef.current]),
-        () => {
-          canvas.renderAll();
-          isUndoingRedoingRef.current = false;
-        }
-      );
-    }
-  }, [canvas, canvasStates]);
-
-  const canvasRedo = useCallback(() => {
-    if (currentStateIndexRef.current < canvasStates.length - 1) {
-      isUndoingRedoingRef.current = true;
-      currentStateIndexRef.current += 1;
-      setCurrentStateIndex(currentStateIndexRef.current); // Update state
-      canvas.loadFromJSON(
-        JSON.parse(canvasStates[currentStateIndexRef.current]),
-        () => {
-          canvas.renderAll();
-          isUndoingRedoingRef.current = false;
-        }
-      );
-    }
-  }, [canvas, canvasStates]);
+  return () => {
+    canvas.off("mouse:down", handleMouseDown);
+    canvas.off("mouse:move", handleMouseMove);
+    canvas.off("mouse:up", handleMouseUp);
+  };
+}, [canvas, selectedTool, isDrawingLine, color, size, tempLine]);
+  
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -133,7 +116,7 @@ export const DrawToolbar = ({ canvas }: { canvas: any }) => {
       canvas.setBackgroundColor(backgroundColor, canvas.renderAll.bind(canvas));
     }
   }, [canvas, backgroundColor]);
-  const [isDrawingLine, setIsDrawingLine] = useState(false);
+
   const [startPoint, setStartPoint] = useState<fabric.fabric.Point | null>(
     null
   );
@@ -160,25 +143,28 @@ export const DrawToolbar = ({ canvas }: { canvas: any }) => {
       fillColor: string,
       size: number
     ) => {
-      const padding = Math.max(strokeWidth, 4); // Ensure minimum padding of 2px
+      const padding = 0; // Ensure minimum padding of 2px
       const cursorSize = Math.max(size * 2, 2) + padding * 2; // Add padding to both sides
       const halfCursorSize = cursorSize / 2;
       const cursorCanvas = document.createElement("canvas");
       cursorCanvas.width = cursorSize;
       cursorCanvas.height = cursorSize;
       const ctx = cursorCanvas.getContext("2d");
-
       if (ctx) {
+        // Draw a filled square to set a base
+        ctx.fillStyle = fillColor;
+        ctx.fillRect(0, 0, cursorSize, cursorSize);
+
+        // Set composite mode to cut out a circle
+        ctx.globalCompositeOperation = "destination-in";
         ctx.beginPath();
         const radius = Math.max(size, 1);
         ctx.arc(halfCursorSize, halfCursorSize, radius, 0, Math.PI * 2);
-
-        ctx.strokeStyle = strokeColor;
-        ctx.lineWidth = strokeWidth;
-        ctx.stroke();
-
-        ctx.fillStyle = fillColor;
         ctx.fill();
+        ctx.closePath();
+
+        // Reset composite operation to default
+        ctx.globalCompositeOperation = "source-over";
       }
 
       return `url(${cursorCanvas.toDataURL()}) ${halfCursorSize} ${halfCursorSize}, auto`;
@@ -264,6 +250,14 @@ export const DrawToolbar = ({ canvas }: { canvas: any }) => {
         size / 2
       );
     }
+    if (selectedTool === "pen") {
+      canvas.defaultCursor = createCustomCursor(
+        0,
+        "#000000",
+        color,
+        size / 2
+      );
+    }
   }, [size, canvas]);
 
   return (
@@ -301,14 +295,14 @@ export const DrawToolbar = ({ canvas }: { canvas: any }) => {
           >
             <Pencil size={24} />
           </button>
-          {/* <button
+          <button
             onClick={enablePenTool}
             className={`p-2 bg-white border-2  rounded-full shadow-md pointer-events-auto hover:bg-gray-100 ${
               selectedTool === "pen" ? "text-primary" : ""
             }`}
           >
             <PenTool size={24} />
-          </button> */}
+          </button>
           <button
             onClick={enableEraser}
             className={`p-2 bg-white  border-2  rounded-full shadow-md pointer-events-auto hover:bg-gray-100 ${
@@ -372,23 +366,19 @@ export const DrawToolbar = ({ canvas }: { canvas: any }) => {
         </div>
         <div className=" flex space-x-2 ml-2 items-center justify-center">
           <button
-            onClick={canvasUndo}
-            disabled={currentStateIndexRef.current <= 0}
+            onClick={undo}
+            disabled={!canUndo}
             className={`p-2 bg-white border-2 rounded-full shadow-md pointer-events-auto hover:bg-gray-100 ${
-              currentStateIndexRef.current <= 0
-                ? "opacity-50 cursor-not-allowed"
-                : ""
+              !canUndo ? "opacity-50 cursor-not-allowed" : ""
             }`}
           >
             <Undo2 size={24} />
           </button>
           <button
-            onClick={canvasRedo}
-            disabled={currentStateIndex >= canvasStates.length - 1}
+            onClick={redo}
+            disabled={!canRedo}
             className={`p-2 bg-white border-2 rounded-full shadow-md pointer-events-auto hover:bg-gray-100 ${
-              currentStateIndex >= canvasStates.length - 1
-                ? "opacity-50 cursor-not-allowed"
-                : ""
+              !canRedo ? "opacity-50 cursor-not-allowed" : ""
             }`}
           >
             <Redo2 size={24} />

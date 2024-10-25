@@ -75,7 +75,7 @@ const libraries = [
     loader: () => import("../font-awesome/js/sharp-thin.js"),
   },
 ];
-
+const loadCount = 60;
 const IconSelect = ({
   color,
   canvas,
@@ -90,7 +90,7 @@ const IconSelect = ({
   const [visibleIcons, setVisibleIcons] = useState<any[]>([]);
   const [isLoadingIcons, setIsLoadingIcons] = useState(true); // State for loading icons
   const [isLoadingButton, setIsLoadingButton] = useState(false); // State for loading button
-  const [loadCount, setLoadCount] = useState(50); // Number of icons to load initially
+
   const loaderRef = useRef(null);
   const [isSharpMode, setIsSharpMode] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
@@ -101,7 +101,10 @@ const IconSelect = ({
     if (selectedLibrary) {
       const libraryIcons = (await selectedLibrary.loader()).default;
       setIcons(Object.entries(libraryIcons));
-      setVisibleIcons(Object.entries(libraryIcons).slice(0, loadCount)); // Load only the first batch of icons initially
+      setVisibleIcons(Object.entries(libraryIcons).slice(0, loadCount));
+
+      // Call loadMoreIcons immediately to trigger scroll loading initially
+      loadMoreIcons();
     }
     setIsLoadingIcons(false);
   };
@@ -151,6 +154,8 @@ const IconSelect = ({
       icon.set({
         left: canvas.width! / 2,
         top: canvas.height! / 2,
+        originX: 'center',
+        originY: 'center'
       });
       canvas.add(icon);
       canvas.setActiveObject(icon);
@@ -158,12 +163,15 @@ const IconSelect = ({
     });
   };
 
-  const loadMoreIcons = useCallback(() => {
-    setVisibleIcons((prevIcons) => [
-      ...prevIcons,
-      ...icons.slice(prevIcons.length, prevIcons.length + loadCount),
-    ]);
-  }, [icons, loadCount]);
+  const loadMoreIcons = () => {
+    setVisibleIcons((prevIcons) => {
+      if (prevIcons.length >= icons.length) return prevIcons;
+      return [
+        ...prevIcons,
+        ...icons.slice(prevIcons.length, prevIcons.length + loadCount),
+      ];
+    });
+  };
 
   useEffect(() => {
     const observer = new IntersectionObserver((entries) => {
@@ -176,12 +184,15 @@ const IconSelect = ({
       observer.observe(loaderRef.current);
     }
 
+    // Initial load of icons to ensure first render loads more icons
+    loadMoreIcons();
+
     return () => {
       if (loaderRef.current) {
         observer.unobserve(loaderRef.current);
       }
     };
-  }, [loadMoreIcons]);
+  }, [icons]); // Depend only on icons array, not memoized or callback functions
 
   const handleLibraryChange = (libraryKey: string) => {
     setIsLoadingButton(true);
