@@ -32,65 +32,86 @@ export const DrawToolbar = ({ canvas }: { canvas: any }) => {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [canvasStates, setCanvasStates] = useState<string[]>([]);
-  const [currentStateIndex, setCurrentStateIndex] = useState(-1);
-
-
+  const currentStateIndexRef = useRef<number>(-1);
+  const isUndoingRedoingRef = useRef<boolean>(false);
+  const [currentStateIndex, setCurrentStateIndex] = useState(0);
 
   // Enable path drawing tool
   const enablePenTool = () => {
     setSelectedTool("pen");
   };
+  useEffect(() => {
+    setCurrentStateIndex(currentStateIndexRef.current);
+  }, [canvasStates, currentStateIndexRef.current]);
 
- 
+  const updateCanvasState = useCallback(() => {
+    if (isUndoingRedoingRef.current) return; // Skip updating state if undoing or redoing
+
+    const jsonData = JSON.stringify(canvas.toJSON());
+    setCanvasStates((prevStates) => {
+      const newStates = [
+        ...prevStates.slice(0, currentStateIndexRef.current + 1),
+        jsonData,
+      ];
+      currentStateIndexRef.current = newStates.length - 1;
+      return newStates;
+    });
+  }, [canvas]);
 
   useEffect(() => {
     if (canvas) {
-      canvas.on("object:modified", updateCanvasState);
-      canvas.on("object:added", updateCanvasState);
+      // Save initial state
+      const initialState = JSON.stringify(canvas.toJSON());
+      setCanvasStates([initialState]);
+      currentStateIndexRef.current = 0;
+
+      const handleStateUpdate = () => {
+        if (!isUndoingRedoingRef.current) {
+          updateCanvasState();
+        }
+      };
+
+      canvas.on("object:modified", handleStateUpdate);
+      canvas.on("object:added", handleStateUpdate);
+      canvas.on("object:removed", handleStateUpdate);
 
       return () => {
-        canvas.off("object:modified", updateCanvasState);
-        canvas.off("object:added", updateCanvasState);
+        canvas.off("object:modified", handleStateUpdate);
+        canvas.off("object:added", handleStateUpdate);
+        canvas.off("object:removed", handleStateUpdate);
       };
     }
-  }, [canvas]);
-
-  const updateCanvasState = useCallback(() => {
-    const jsonData = canvas.toJSON();
-    const canvasAsJson = JSON.stringify(jsonData);
-
-    setCanvasStates((prevStates) => {
-      const newStates = [
-        ...prevStates.slice(0, currentStateIndex + 1),
-        canvasAsJson,
-      ];
-      setCurrentStateIndex(newStates.length - 1);
-      return newStates;
-    });
-  }, [canvas, currentStateIndex]);
+  }, [canvas, updateCanvasState]);
 
   const canvasUndo = useCallback(() => {
-    if (currentStateIndex > 0) {
-      const newIndex = currentStateIndex - 1;
-      setCurrentStateIndex(newIndex);
-      canvas.loadFromJSON(canvasStates[newIndex], () => {
-        canvas.renderAll();
-      });
-    } else if (currentStateIndex === 0) {
-      setCurrentStateIndex(-1);
-      canvas.clear();
+    if (currentStateIndexRef.current > 0) {
+      isUndoingRedoingRef.current = true;
+      currentStateIndexRef.current -= 1;
+      setCurrentStateIndex(currentStateIndexRef.current); // Update state
+      canvas.loadFromJSON(
+        JSON.parse(canvasStates[currentStateIndexRef.current]),
+        () => {
+          canvas.renderAll();
+          isUndoingRedoingRef.current = false;
+        }
+      );
     }
-  }, [canvas, canvasStates, currentStateIndex]);
+  }, [canvas, canvasStates]);
 
   const canvasRedo = useCallback(() => {
-    if (currentStateIndex < canvasStates.length - 1) {
-      const newIndex = currentStateIndex + 1;
-      setCurrentStateIndex(newIndex);
-      canvas.loadFromJSON(canvasStates[newIndex], () => {
-        canvas.renderAll();
-      });
+    if (currentStateIndexRef.current < canvasStates.length - 1) {
+      isUndoingRedoingRef.current = true;
+      currentStateIndexRef.current += 1;
+      setCurrentStateIndex(currentStateIndexRef.current); // Update state
+      canvas.loadFromJSON(
+        JSON.parse(canvasStates[currentStateIndexRef.current]),
+        () => {
+          canvas.renderAll();
+          isUndoingRedoingRef.current = false;
+        }
+      );
     }
-  }, [canvas, canvasStates, currentStateIndex]);
+  }, [canvas, canvasStates]);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -352,16 +373,22 @@ export const DrawToolbar = ({ canvas }: { canvas: any }) => {
         <div className=" flex space-x-2 ml-2 items-center justify-center">
           <button
             onClick={canvasUndo}
-            className={`p-2 bg-white  border-2  rounded-full shadow-md pointer-events-auto hover:bg-gray-100 ${
-              selectedTool === "eraser" ? "text-primary" : ""
+            disabled={currentStateIndexRef.current <= 0}
+            className={`p-2 bg-white border-2 rounded-full shadow-md pointer-events-auto hover:bg-gray-100 ${
+              currentStateIndexRef.current <= 0
+                ? "opacity-50 cursor-not-allowed"
+                : ""
             }`}
           >
             <Undo2 size={24} />
           </button>
           <button
             onClick={canvasRedo}
-            className={`p-2 bg-white  border-2  rounded-full shadow-md pointer-events-auto hover:bg-gray-100 ${
-              selectedTool === "eraser" ? "text-primary" : ""
+            disabled={currentStateIndex >= canvasStates.length - 1}
+            className={`p-2 bg-white border-2 rounded-full shadow-md pointer-events-auto hover:bg-gray-100 ${
+              currentStateIndex >= canvasStates.length - 1
+                ? "opacity-50 cursor-not-allowed"
+                : ""
             }`}
           >
             <Redo2 size={24} />
